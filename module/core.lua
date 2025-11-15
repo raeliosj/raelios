@@ -1,0 +1,174 @@
+local m = {}
+
+-- Services
+m.Players = game:GetService("Players")
+m.ReplicatedStorage = game:GetService("ReplicatedStorage")
+m.TeleportService = game:GetService("TeleportService")
+m.UserInputService = game:GetService("UserInputService")
+m.GuiService = game:GetService("GuiService")
+m.Workspace = game:GetService("Workspace")
+m.VirtualUser = game:GetService("VirtualUser")
+m.MarketplaceService = game:GetService("MarketplaceService")
+m.PlaceId = game.PlaceId
+m.JobId = game.JobId
+m.IsWindowOpen = false
+
+-- Player reference
+m.LocalPlayer = m.Players.LocalPlayer
+
+-- Dynamic getters
+function m:GetCharacter()
+    return self.LocalPlayer.Character
+end
+
+function m:GetHumanoid()
+    local char = self:GetCharacter()
+    return char and char:FindFirstChildOfClass("Humanoid") or nil
+end
+
+function m:GetHumanoidRootPart()
+    local char = self:GetCharacter()
+    return char and char:FindFirstChild("HumanoidRootPart") or nil
+end
+
+function m:GetBackpack()
+    return self.LocalPlayer:FindFirstChild("Backpack")
+end
+
+function m:GetPlayerGui()
+    return self.LocalPlayer:FindFirstChild("PlayerGui")
+end
+
+function m:Rejoin()
+    if self.PlaceId and self.JobId then
+        self.TeleportService:TeleportToPlaceInstance(self.PlaceId, self.JobId, self.LocalPlayer)
+    else
+        warn("Core:Rejoin - PlaceId or JobId is nil, cannot rejoin.")
+    end
+end
+
+function m:HopServer()
+    if self.PlaceId then
+        self.TeleportService:Teleport(self.PlaceId, self.LocalPlayer)
+    else
+        warn("Core:HopServer - PlaceId is nil, cannot hop server.")
+    end
+end
+
+function m:StringToCFrame(str)
+    local cframePosition = CFrame.new(0.0, 0.0, 0.0)
+
+    local values = string.split(str, ",")
+    for i, v in ipairs(values) do
+        values[i] = tonumber(v)
+    end
+
+    if #values == 3 then
+        cframePosition = CFrame.new(Vector3.new(values[1], values[2], values[3]))
+    elseif #values == 12 then
+        cframePosition = CFrame.new(
+            values[1], values[2], values[3],
+            values[4], values[5], values[6],
+            values[7], values[8], values[9],
+            values[10], values[11], values[12]
+        )
+    else
+        warn("Position string is invalid.")
+        return nil
+    end
+    
+    return cframePosition
+end
+
+function m:FormatNumber(number)
+    local is_integer = (number == math.floor(number))
+    
+    local int_part, dec_part
+    
+    if is_integer then
+        int_part = tostring(math.floor(number))
+    else
+        -- Untuk desimal, format dengan 2 digit di belakang koma
+        local formatted = string.format("%.2f", number)
+        int_part, dec_part = formatted:match("^(-?%d+)%.(%d+)$")
+    end
+    
+    local k
+    while true do  
+        int_part, k = int_part:gsub("^(-?%d+)(%d%d%d)", "%1.%2")
+        if k == 0 then break end
+    end
+    
+    if dec_part then
+        return int_part .. "," .. dec_part
+    else
+        return int_part
+    end
+end
+
+function m:FormatChance(chance)
+    if chance <= 0 then return "impossible" end
+    local odds = 1 / chance
+
+    local suffixes = {
+        {1e9, "B"},
+        {1e6, "M"},
+        {1e3, "K"},
+    }
+
+    for _, s in ipairs(suffixes) do
+        local div, label = s[1], s[2]
+        if odds >= div then
+            return string.format("1 in %.1f%s", odds / div, label)
+        end
+    end
+
+    return string.format("1 in %.1f", odds)
+end
+
+-- Table to track active loops
+local activeLoops = {}
+
+function m:MakeLoop(_isEnableFunc, _func, _delay)
+    local function resolveDelay()
+        if type(_delay) == "function" then
+            return _delay()
+        end
+        return _delay or 3 -- Ensure default delay is applied
+    end
+
+    local loop = coroutine.create(function()
+        while self.IsWindowOpen do
+            local isEnabled = false
+
+            -- Handle both function and direct value
+            if type(_isEnableFunc) == "function" then
+                isEnabled = _isEnableFunc()
+            else
+                isEnabled = _isEnableFunc
+            end
+
+            if not isEnabled then
+                task.wait(1) -- Wait when disabled
+                continue
+            end
+
+            _func()
+            task.wait(resolveDelay()) -- Use resolved delay
+        end
+    end)
+
+    table.insert(activeLoops, loop)
+    coroutine.resume(loop)
+    return loop
+end
+
+function m:StopAllLoops()
+    for _, loop in ipairs(activeLoops) do
+        if loop and coroutine.status(loop) ~= "dead" then
+            coroutine.close(loop)
+        end
+    end
+    table.clear(activeLoops)
+end
+return m
